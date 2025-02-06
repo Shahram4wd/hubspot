@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 import os
 from pathlib import Path
+import dj_database_url
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -74,16 +76,23 @@ WSGI_APPLICATION = "hubspot.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.postgresql',
+#        'NAME': os.getenv('DATABASE_NAME', 'hubspot-warehouse'),
+#        'USER': os.getenv('DATABASE_USER', 'postgres'),
+#        'PASSWORD': os.getenv('DATABASE_PASSWORD', ''),
+#        'HOST': os.getenv('DATABASE_HOST', 'db'),
+#        'PORT': os.getenv('DATABASE_PORT', '5432'),
+#    }
+#}
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("DATABASE_NAME", "postgres"),
-        "USER": os.environ.get("DATABASE_USER", "postgres"),
-        "PASSWORD": os.environ.get("DATABASE_PASSWORD", ""),
-        "HOST": os.environ.get("DATABASE_HOST", "localhost"),
-        "PORT": os.environ.get("DATABASE_PORT", "5432"),
-    }
+    'default': dj_database_url.config(default=os.getenv("DATABASE_URL"))
 }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {

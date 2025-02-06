@@ -3,3 +3,5 @@ aiohttp
 psycopg2-binary
 gunicorn
 asgiref
+python-dotenv
+dj-database-url

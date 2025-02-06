@@ -7,7 +7,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from hubspot_sync.models import Job, Division, Employee
+from hubspot_sync.models import HubSpotData, HubSpotSyncHistory, Job, Division, Employee
+
 
 class Command(BaseCommand):
     help = "Sync data from HubSpot API"
@@ -16,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--endpoint",
             nargs="+",
-            help="Specify one or more endpoints to sync. If omitted, endpoints will be discovered.",
+            help="Specify one or more endpoints to sync. If omitted, all available endpoints will be discovered.",
         )
         parser.add_argument(
             "--concurent",
@@ -43,7 +44,10 @@ class Command(BaseCommand):
             if not endpoints:
                 endpoints = await self.discover_endpoints(session, token)
                 self.stdout.write(self.style.SUCCESS(f"Discovered endpoints: {endpoints}"))
-            tasks = [self.sync_endpoint(ep, token, session, semaphore) for ep in endpoints]
+            tasks = [
+                self.sync_endpoint(ep, token, session, semaphore)
+                for ep in endpoints
+            ]
             await asyncio.gather(*tasks)
 
     async def discover_endpoints(self, session, token):
@@ -51,10 +55,16 @@ class Command(BaseCommand):
         headers = {"Authorization": f"Bearer {token}"}
         async with session.get(url, headers=headers) as response:
             if response.status != 200:
-                self.stdout.write(self.style.ERROR(f"Failed to discover endpoints. Status: {response.status}"))
+                self.stdout.write(
+                    self.style.ERROR(f"Failed to discover endpoints. Status: {response.status}")
+                )
                 return []
             data = await response.json()
-        endpoints = [schema.get("name") for schema in data.get("results", []) if schema.get("name")]
+        endpoints = [
+            schema.get("objectTypeId")
+            for schema in data.get("results", [])
+            if schema.get("objectTypeId")
+        ]
         return endpoints
 
     async def sync_endpoint(self, endpoint, token, session, semaphore):
@@ -72,7 +82,11 @@ class Command(BaseCommand):
                     params=params,
                 ) as response:
                     if response.status != 200:
-                        self.stdout.write(self.style.ERROR(f"Failed to fetch data for endpoint {endpoint}. Status: {response.status}"))
+                        self.stdout.write(
+                            self.style.ERROR(
+                                f"Failed to fetch data for endpoint {endpoint}. Status: {response.status}"
+                            )
+                        )
                         break
                     data = await response.json()
                 results = data.get("results", [])
@@ -89,7 +103,6 @@ class Command(BaseCommand):
             await sync_to_async(self.update_last_sync)(endpoint)
 
     def get_last_sync(self, endpoint):
-        from hubspot_sync.models import HubSpotSyncHistory
         try:
             history = HubSpotSyncHistory.objects.get(endpoint=endpoint)
             return history.last_synced_at
@@ -97,66 +110,44 @@ class Command(BaseCommand):
             return None
 
     def update_last_sync(self, endpoint):
-        from hubspot_sync.models import HubSpotSyncHistory
         history, _ = HubSpotSyncHistory.objects.get_or_create(endpoint=endpoint)
         history.last_synced_at = timezone.now()
         history.save()
 
     def save_record(self, endpoint, record):
-        if endpoint == "jobs":
-            key = record.get("job_id")
-            if key is None:
-                return
-            fields = extract_job_fields(record)
-            Job.objects.update_or_create(job_id=key, defaults=fields)
-        elif endpoint == "divisions":
-            key = record.get("id")
-            if key is None:
-                return
-            fields = extract_division_fields(record)
-            Division.objects.update_or_create(id=key, defaults=fields)
-        elif endpoint == "employees":
-            key = record.get("hs_object_id")
-            if key is None:
-                return
-            fields = extract_employee_fields(record)
-            Employee.objects.update_or_create(hs_object_id=key, defaults=fields)
+        # For the "jobs" endpoint (or its known aliases)
+        if endpoint.lower() in ['jobs', 'p47947320_jobs', '2-37778614']:
+            job_data = {}
+            job_field_names = {field.name for field in Job._meta.get_fields() if field.concrete and not field.auto_created}
+            for key in job_field_names:
+                if key in record:
+                    job_data[key] = record[key]
+            Job.objects.update_or_create(job_id=job_data.get("job_id"), defaults=job_data)
+
+        # For the "divisions" endpoint (or its known aliases)
+        elif endpoint.lower() in ['divisions', 'p47947320_divisions', '2-37778609']:
+            division_data = {}
+            division_field_names = {field.name for field in Division._meta.get_fields() if field.concrete and not field.auto_created}
+            for key in division_field_names:
+                if key in record:
+                    division_data[key] = record[key]
+            Division.objects.update_or_create(id=division_data.get("id"), defaults=division_data)
+
+        # For the "employees" endpoint (or its known aliases)
+        elif endpoint.lower() in ['employees', 'p47947320_employees', '2-38071071']:
+            employee_data = {}
+            employee_field_names = {field.name for field in Employee._meta.get_fields() if field.concrete and not field.auto_created}
+            for key in employee_field_names:
+                if key in record:
+                    employee_data[key] = record[key]
+            # Use the unique HubSpot record id ("hs_object_id") if available.
+            Employee.objects.update_or_create(hs_object_id=employee_data.get("hs_object_id"), defaults=employee_data)
+
+        # Fallback: store the record in the generic table.
         else:
-            self.stdout.write(self.style.WARNING(f"Endpoint {endpoint} not specifically handled; record skipped."))
-
-def extract_job_fields(record):
-    return {
-        "job_id": record.get("job_id"),
-        "add_date": record.get("add_date"),
-        "add_user_id": record.get("add_user_id"),
-        "cancel_date": record.get("cancel_date"),
-        "contract_amount": record.get("contract_amount"),
-        "job_value": record.get("job_value"),
-        "hs_object_id": record.get("hs_object_id"),
-        "hubspot_createdate": record.get("hs_createdate"),
-        "hubspot_lastmodifieddate": record.get("hs_lastmodifieddate"),
-    }
-
-def extract_division_fields(record):
-    return {
-        "id": record.get("id"),
-        "abbreviation": record.get("abbreviation"),
-        "group_id": record.get("group_id"),
-        "is_corp": record.get("is_corp"),
-        "is_inactive": record.get("is_inactive"),
-        "hs_object_id": record.get("hs_object_id"),
-        "hubspot_createdate": record.get("hs_createdate"),
-        "hubspot_lastmodifieddate": record.get("hs_lastmodifieddate"),
-    }
-
-def extract_employee_fields(record):
-    return {
-        "firstname": record.get("firstname"),
-        "lastname": record.get("lastname"),
-        "email": record.get("email"),
-        "employee_division_id": record.get("employee_division_id"),
-        "employee_title_id": record.get("employee_title_id"),
-        "hs_object_id": record.get("hs_object_id"),
-        "hubspot_createdate": record.get("hs_createdate"),
-        "hubspot_lastmodifieddate": record.get("hs_lastmodifieddate"),
-    }
+            record_id = record.get("id") or record.get("job_id")
+            HubSpotData.objects.update_or_create(
+                endpoint=endpoint,
+                record_id=record_id,
+                defaults={"data": record},
+            )
