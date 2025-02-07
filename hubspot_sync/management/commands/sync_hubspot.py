@@ -116,38 +116,46 @@ class Command(BaseCommand):
 
     def save_record(self, endpoint, record):
         # For the "jobs" endpoint (or its known aliases)
+        print("endpoint received:", endpoint)
+        print("Record received:", record)
+        
+
         if endpoint.lower() in ['jobs', 'p47947320_jobs', '2-37778614']:
             job_data = {}
             job_field_names = {field.name for field in Job._meta.get_fields() if field.concrete and not field.auto_created}
+            print("job_field_names:", job_field_names)
             for key in job_field_names:
                 if key in record:
                     job_data[key] = record[key]
-            Job.objects.update_or_create(job_id=job_data.get("job_id"), defaults=job_data)
+                    print("Job (", key, "): ", record[key])
+            #Job.objects.update_or_create(job_id=job_data.get("job_id"), defaults=job_data)
 
-        # For the "divisions" endpoint (or its known aliases)
+        # # For the "divisions" endpoint (or its known aliases)
         elif endpoint.lower() in ['divisions', 'p47947320_divisions', '2-37778609']:
             division_data = {}
             division_field_names = {field.name for field in Division._meta.get_fields() if field.concrete and not field.auto_created}
             for key in division_field_names:
                 if key in record:
                     division_data[key] = record[key]
-            Division.objects.update_or_create(id=division_data.get("id"), defaults=division_data)
+                    print("division_data (", key, "): ", record[key])
+        #     Division.objects.update_or_create(id=division_data.get("id"), defaults=division_data)
 
-        # For the "employees" endpoint (or its known aliases)
+        # # For the "employees" endpoint (or its known aliases)
         elif endpoint.lower() in ['employees', 'p47947320_employees', '2-38071071']:
             employee_data = {}
             employee_field_names = {field.name for field in Employee._meta.get_fields() if field.concrete and not field.auto_created}
             for key in employee_field_names:
                 if key in record:
                     employee_data[key] = record[key]
-            # Use the unique HubSpot record id ("hs_object_id") if available.
-            Employee.objects.update_or_create(hs_object_id=employee_data.get("hs_object_id"), defaults=employee_data)
+                    print("employee_data (", key, "): ", record[key])
+        #     # Use the unique HubSpot record id ("hs_object_id") if available.
+        #     Employee.objects.update_or_create(hs_object_id=employee_data.get("hs_object_id"), defaults=employee_data)
 
-        # Fallback: store the record in the generic table.
-        else:
-            record_id = record.get("id") or record.get("job_id")
-            HubSpotData.objects.update_or_create(
-                endpoint=endpoint,
-                record_id=record_id,
-                defaults={"data": record},
-            )
+        # # Fallback: store the record in the generic table.
+        # else:
+        #     record_id = record.get("id") or record.get("job_id")
+        #     HubSpotData.objects.update_or_create(
+        #         endpoint=endpoint,
+        #         record_id=record_id,
+        #         defaults={"data": record},
+        #     )
